@@ -72,7 +72,7 @@ final creditsProvider = FutureProvider<List<CreditRecord>>((ref) async {
   if (filter == null) return [];
   final dio = await ApiClient.get();
   final params = <String, dynamic>{
-    'client_id': filter.clientId, 'limit': 500,
+    'client_id': filter.clientId, 'limit': 200,
     if (filter.year != null) 'year': filter.year,
     if (filter.month != null) 'month': filter.month,
     if (filter.consumerUnitId != null) 'consumer_unit_id': filter.consumerUnitId,

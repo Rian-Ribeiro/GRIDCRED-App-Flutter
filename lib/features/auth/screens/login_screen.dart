@@ -15,29 +15,16 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _urlCtrl = TextEditingController();
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _loading = false;
   bool _obscure = true;
   String? _error;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadSavedUrl();
-  }
-
-  Future<void> _loadSavedUrl() async {
-    _urlCtrl.text = await AuthStorage.getBaseUrl();
-  }
-
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _loading = true; _error = null; });
 
-    final url = _urlCtrl.text.trim().replaceAll(RegExp(r'/$'), '');
-    await AuthStorage.saveBaseUrl(url);
     ApiClient.reset();
 
     try {
@@ -52,7 +39,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final token = resp.data['access_token'] as String;
       await AuthStorage.saveToken(token);
 
-      // Busca role do usuário
       final me = await dio.get('/auth/me',
           options: Options(headers: {'Authorization': 'Bearer $token'}));
       final role = me.data['role'] as String;
@@ -84,40 +70,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Logo
-                  Container(
-                    width: 80, height: 80,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1A7F37),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Icon(Icons.bolt, color: Colors.white, size: 48),
+                  Image.asset(
+                    'assets/images/logo.png',
+                    width: 220,
+                    fit: BoxFit.contain,
                   ),
-                  const SizedBox(height: 16),
-                  Text('GRIDCRED',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF1A7F37),
-                    )),
-                  Text('Multiluz Fácil',
+                  const SizedBox(height: 8),
+                  Text('Niertech Tecnologias e Sistemas',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey)),
                   const SizedBox(height: 32),
 
-                  // URL do servidor
-                  TextFormField(
-                    controller: _urlCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'URL do servidor',
-                      prefixIcon: Icon(Icons.dns_outlined),
-                      hintText: 'http://192.168.1.100:8000',
-                    ),
-                    keyboardType: TextInputType.url,
-                    autocorrect: false,
-                    validator: (v) => (v == null || v.isEmpty) ? 'Informe a URL' : null,
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Usuário
                   TextFormField(
                     controller: _userCtrl,
                     decoration: const InputDecoration(
@@ -125,11 +87,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       prefixIcon: Icon(Icons.person_outline),
                     ),
                     autocorrect: false,
+                    textInputAction: TextInputAction.next,
                     validator: (v) => (v == null || v.isEmpty) ? 'Informe o usuário' : null,
                   ),
                   const SizedBox(height: 12),
 
-                  // Senha
                   TextFormField(
                     controller: _passCtrl,
                     obscureText: _obscure,

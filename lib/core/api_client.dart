@@ -1,11 +1,12 @@
 import 'package:dio/dio.dart';
 import 'auth_storage.dart';
+import 'constants.dart';
 
 class ApiClient {
   static Dio? _dio;
 
   static Future<Dio> get() async {
-    final baseUrl = await AuthStorage.getBaseUrl();
+    const baseUrl = kDefaultBaseUrl;
     final token = await AuthStorage.getToken();
 
     _dio = Dio(BaseOptions(

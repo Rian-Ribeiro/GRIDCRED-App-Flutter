@@ -1,4 +1,4 @@
-const kDefaultBaseUrl = 'http://192.168.2.104:8000';
+const kDefaultBaseUrl = 'http://136.248.91.83';
 const kTokenKey = 'access_token';
 const kBaseUrlKey = 'base_url';
 const kUsernameKey = 'username';

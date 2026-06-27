@@ -29,15 +29,16 @@ class CreditRecord {
 
   factory CreditRecord.fromJson(Map<String, dynamic> j) {
     final calc = j['calculation'] as Map<String, dynamic>?;
+    double _d(dynamic v) => double.tryParse(v?.toString() ?? '0') ?? 0.0;
     return CreditRecord(
       installationNumber: j['installation_number'] ?? '',
       month: j['reference_month'] ?? 0,
       year: j['reference_year'] ?? 0,
-      received: (j['transferred_credit_kwh'] ?? 0).toDouble(),
-      estimated: (calc?['estimated_kwh'] ?? 0).toDouble(),
-      difference: (calc?['difference_kwh'] ?? 0).toDouble(),
-      consumption: (j['consumption_kwh'] ?? 0).toDouble(),
-      accumulated: (j['accumulated_balance_kwh'] ?? 0).toDouble(),
+      received: _d(j['transferred_credit_kwh']),
+      estimated: _d(calc?['estimated_kwh']),
+      difference: _d(calc?['difference_kwh']),
+      consumption: _d(j['consumption_kwh']),
+      accumulated: _d(j['accumulated_balance_kwh']),
       calcStatus: calc?['status'] ?? 'exact',
     );
   }
@@ -85,6 +86,6 @@ final creditsProvider = FutureProvider<List<CreditRecord>>((ref) async {
 
 final consumerUnitsProvider = FutureProvider.family<List<Map<String, dynamic>>, int>((ref, clientId) async {
   final dio = await ApiClient.get();
-  final resp = await dio.get('/consumer-units/', queryParameters: {'client_id': clientId, 'limit': 100});
-  return List<Map<String, dynamic>>.from(resp.data['items'] ?? []);
+  final resp = await dio.get('/consumer-units/me');
+  return List<Map<String, dynamic>>.from(resp.data as List);
 });

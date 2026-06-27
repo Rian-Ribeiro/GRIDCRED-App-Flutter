@@ -23,7 +23,6 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
   final _fmt = NumberFormat('#,##0.00', 'pt_BR');
   int? _filterYear, _filterMonth, _filterCuId;
   bool _downloading = false;
-
   final _years = List.generate(6, (i) => DateTime.now().year - i);
 
   @override
@@ -49,20 +48,31 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
       ),
       body: clientAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
-            const SizedBox(height: 8),
-            Text(ApiClient.errorMessage(e), textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: () => ref.invalidate(myClientProvider),
-              icon: const Icon(Icons.refresh), label: const Text('Tentar novamente'),
-            ),
-          ]),
-        ),
+        error: (e, _) {
+          final is401 = e is DioException && e.response?.statusCode == 401;
+          return Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              const SizedBox(height: 8),
+              Text(ApiClient.errorMessage(e), textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              if (is401)
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    await ref.read(authProvider.notifier).logout();
+                    if (context.mounted) context.go('/login');
+                  },
+                  icon: const Icon(Icons.login), label: const Text('Fazer login'),
+                )
+              else
+                ElevatedButton.icon(
+                  onPressed: () => ref.invalidate(myClientProvider),
+                  icon: const Icon(Icons.refresh), label: const Text('Tentar novamente'),
+                ),
+            ]),
+          );
+        },
         data: (client) {
-          // Inicializa filtro com o id do cliente
           WidgetsBinding.instance.addPostFrameCallback((_) {
             final cur = ref.read(creditsFilterProvider);
             if (cur == null || cur.clientId != client.id) {
@@ -75,10 +85,12 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
             onRefresh: () async {
               ref.invalidate(creditsProvider);
               ref.invalidate(myClientProvider);
+              ref.invalidate(consumerUnitsProvider(client.id));
             },
             child: CustomScrollView(
               slivers: [
                 SliverToBoxAdapter(child: _clientCard(client)),
+                SliverToBoxAdapter(child: _ucSelector(client.id)),
                 SliverToBoxAdapter(child: _filtersRow(client.id)),
                 SliverToBoxAdapter(child: _downloadRow(client.id)),
                 _creditsList(),
@@ -91,15 +103,14 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
   }
 
   Widget _clientCard(ClientInfo c) => Card(
-    margin: const EdgeInsets.all(16),
+    margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
     child: Padding(
       padding: const EdgeInsets.all(16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
           Container(
             width: 40, height: 40,
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A7F37), shape: BoxShape.circle),
+            decoration: const BoxDecoration(color: Color(0xFF1A7F37), shape: BoxShape.circle),
             child: const Icon(Icons.person, color: Colors.white),
           ),
           const SizedBox(width: 12),
@@ -131,10 +142,119 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
     ),
   );
 
+  Widget _ucSelector(int clientId) {
+    final ucsAsync = ref.watch(consumerUnitsProvider(clientId));
+    return ucsAsync.when(
+      loading: () => const SizedBox(height: 48, child: Center(child: LinearProgressIndicator())),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (ucs) {
+        if (ucs.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+              child: Row(children: [
+                const Icon(Icons.electric_meter_outlined, size: 16, color: Color(0xFF1A7F37)),
+                const SizedBox(width: 6),
+                Text('Unidades Consumidoras (${ucs.length})',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1A7F37))),
+              ]),
+            ),
+            SizedBox(
+              height: 40,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: [
+                  // Chip "Todas"
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: FilterChip(
+                      label: const Text('Todas'),
+                      selected: _filterCuId == null,
+                      onSelected: (_) {
+                        setState(() => _filterCuId = null);
+                        _applyFilter(clientId);
+                      },
+                      selectedColor: const Color(0xFF1A7F37),
+                      labelStyle: TextStyle(
+                        color: _filterCuId == null ? Colors.white : null,
+                        fontSize: 12,
+                      ),
+                      showCheckmark: false,
+                    ),
+                  ),
+                  // Chip por UC
+                  ...ucs.map((uc) {
+                    final id = uc['id'] as int;
+                    final num = uc['installation_number'] as String;
+                    final selected = _filterCuId == id;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: FilterChip(
+                        avatar: const Icon(Icons.bolt, size: 14),
+                        label: Text(num),
+                        selected: selected,
+                        onSelected: (_) {
+                          setState(() => _filterCuId = selected ? null : id);
+                          _applyFilter(clientId);
+                        },
+                        selectedColor: const Color(0xFF1A7F37),
+                        labelStyle: TextStyle(
+                          color: selected ? Colors.white : null,
+                          fontSize: 12,
+                        ),
+                        showCheckmark: false,
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+            // Detalhes da UC selecionada
+            if (_filterCuId != null) _ucDetail(ucs, _filterCuId!),
+            const SizedBox(height: 8),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _ucDetail(List<Map<String, dynamic>> ucs, int ucId) {
+    final uc = ucs.firstWhere((u) => u['id'] == ucId, orElse: () => {});
+    if (uc.isEmpty) return const SizedBox.shrink();
+    final fmt = NumberFormat('#,##0.0', 'pt_BR');
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A7F37).withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF1A7F37).withValues(alpha: 0.3)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.electric_meter, color: Color(0xFF1A7F37), size: 20),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('UC ${uc['installation_number']}',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          if (uc['address'] != null)
+            Text(uc['address'], style: const TextStyle(fontSize: 11, color: Colors.grey)),
+        ])),
+        if (uc['estimated_monthly_credit_kwh'] != null)
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text('${fmt.format(double.tryParse(uc['estimated_monthly_credit_kwh'].toString()) ?? 0)} kWh',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A7F37))),
+            const Text('estimado/mês', style: TextStyle(fontSize: 10, color: Colors.grey)),
+          ]),
+      ]),
+    );
+  }
+
   Widget _filtersRow(int clientId) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 16),
     child: Row(children: [
-      // Ano
       Expanded(child: DropdownButtonFormField<int?>(
         initialValue: _filterYear,
         decoration: const InputDecoration(labelText: 'Ano', isDense: true,
@@ -149,7 +269,6 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
         },
       )),
       const SizedBox(width: 8),
-      // Mês
       Expanded(child: DropdownButtonFormField<int?>(
         initialValue: _filterMonth,
         decoration: const InputDecoration(labelText: 'Mês', isDense: true,
@@ -180,8 +299,7 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
         onPressed: _downloading ? null : () => _download(clientId, 'excel'),
         icon: const Icon(Icons.table_chart, color: Color(0xFF1A7F37)),
         label: const Text('Excel', style: TextStyle(color: Color(0xFF1A7F37))),
-        style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: Color(0xFF1A7F37))),
+        style: OutlinedButton.styleFrom(side: const BorderSide(color: Color(0xFF1A7F37))),
       )),
       if (_downloading) ...[
         const SizedBox(width: 8),
@@ -194,10 +312,8 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
   Widget _creditsList() {
     final creditsAsync = ref.watch(creditsProvider);
     return creditsAsync.when(
-      loading: () => const SliverFillRemaining(
-        child: Center(child: CircularProgressIndicator())),
-      error: (e, _) => SliverFillRemaining(
-        child: Center(child: Text(ApiClient.errorMessage(e)))),
+      loading: () => const SliverFillRemaining(child: Center(child: CircularProgressIndicator())),
+      error: (e, _) => SliverFillRemaining(child: Center(child: Text(ApiClient.errorMessage(e)))),
       data: (records) {
         if (records.isEmpty) {
           return const SliverFillRemaining(
@@ -211,7 +327,7 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
         return SliverList(
           delegate: SliverChildBuilderDelegate(
             (ctx, i) {
-              if (i == 0) return _creditsHeader(records.length);
+              if (i == 0) return _creditsHeader(records);
               return _creditTile(records[i - 1]);
             },
             childCount: records.length + 1,
@@ -221,15 +337,26 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
     );
   }
 
-  Widget _creditsHeader(int count) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-    child: Row(children: [
-      Text('Histórico de Créditos',
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-      const Spacer(),
-      Text('$count registro(s)', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-    ]),
-  );
+  Widget _creditsHeader(List<CreditRecord> records) {
+    final totalRecebido = records.fold(0.0, (s, r) => s + r.received);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Text('Histórico de Créditos',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          const Spacer(),
+          Text('${records.length} registro(s)',
+            style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        ]),
+        if (records.isNotEmpty) Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text('Total recebido: ${_fmt.format(totalRecebido)} kWh',
+            style: const TextStyle(fontSize: 12, color: Color(0xFF1A7F37))),
+        ),
+      ]),
+    );
+  }
 
   Widget _creditTile(CreditRecord r) {
     final isOk = r.calcStatus == 'exact';
@@ -246,13 +373,14 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
             Text('${_months[r.month - 1]}/${r.year}',
               style: const TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(width: 8),
-            Text(r.installationNumber,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.grey)),
+            if (_filterCuId == null)
+              Text(r.installationNumber,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.grey)),
             const Spacer(),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: color.withValues(alpha:0.15),
+                color: color.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(statusLabel,
@@ -292,6 +420,7 @@ class _PortalScreenState extends ConsumerState<PortalScreen> {
       final params = <String, dynamic>{
         if (_filterYear != null) 'year': _filterYear,
         if (_filterMonth != null) 'month': _filterMonth,
+        if (_filterCuId != null) 'consumer_unit_id': _filterCuId,
       };
 
       late String path;
